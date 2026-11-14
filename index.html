@@ -1,0 +1,537 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Gig Lyrics Screen</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Atkinson+Hyperlegible:wght@400;700&family=Bricolage+Grotesque:wght@600;800&family=JetBrains+Mono:wght@500;700&display=swap" rel="stylesheet">
+<style>
+/* Layout idea: one stage-dark world. Screen = a single reading column with a pinned up-next bar.
+   Remote = thumb-first: queue strip, lyric pane you scroll, big transport at the bottom. */
+:root{
+  color-scheme:dark;
+  --bg:#0f1418; --panel:#182028; --raise:#212c37; --line:#2e3a47;
+  --text:#f3efe4; --muted:#93a1ae;
+  --chord:#ffb648;      /* amber: chords, like a warm stage wash */
+  --live:#ff6a4d;       /* coral: what is on stage right now */
+  --ok:#5fd0a0;
+  --display:"Bricolage Grotesque","Trebuchet MS",sans-serif;
+  --body:"Atkinson Hyperlegible",Verdana,sans-serif;
+  --mono:"JetBrains Mono",ui-monospace,Menlo,monospace;
+}
+*{box-sizing:border-box}
+html,body{height:100%;margin:0}
+body{background:var(--bg);color:var(--text);font-family:var(--body);font-size:16px;line-height:1.4;overflow:hidden}
+button,input,textarea,select{font:inherit;color:inherit}
+button{cursor:pointer;border:1px solid var(--line);background:var(--raise);border-radius:10px;min-height:44px;padding:0 14px}
+button:active{transform:translateY(1px)}
+button:focus-visible,input:focus-visible,textarea:focus-visible{outline:2px solid var(--chord);outline-offset:2px}
+button.primary{background:var(--chord);border-color:var(--chord);color:#1b1206;font-weight:700}
+button.live{background:var(--live);border-color:var(--live);color:#210a04;font-weight:700}
+button.ghost{background:transparent}
+button.danger{color:#ff9d8a}
+input,textarea{background:var(--bg);border:1px solid var(--line);border-radius:10px;padding:10px 12px;width:100%}
+textarea{font-family:var(--mono);font-size:14px;line-height:1.5;min-height:240px;resize:vertical}
+label{font-size:13px;color:var(--muted);display:flex;flex-direction:column;gap:4px}
+h1,h2,h3{font-family:var(--display);margin:0;text-wrap:balance}
+[hidden]{display:none!important}
+
+/* ---------- song text (shared by screen and remote) ---------- */
+.song .sec{font-family:var(--display);font-size:.5em;letter-spacing:.14em;text-transform:uppercase;color:var(--muted);margin:1.3em 0 .35em}
+.song .sec:first-child{margin-top:0}
+.song .ln{display:flex;flex-wrap:wrap;align-items:flex-end;margin-bottom:.18em}
+.song .seg{display:inline-flex;flex-direction:column}
+.song .c{font-family:var(--mono);font-weight:700;color:var(--chord);font-size:.66em;line-height:1.15;min-height:1.15em;padding-right:.6em}
+.song .t{white-space:pre-wrap}
+.song .cl{font-family:var(--mono);font-weight:700;color:var(--chord);font-size:.66em;white-space:pre-wrap;line-height:1.3}
+.song .gap{height:.7em}
+
+/* ---------- screen ---------- */
+#screen{height:100%;display:flex;flex-direction:column}
+#scr-head{display:flex;align-items:baseline;gap:16px;flex-wrap:wrap;padding:clamp(12px,2vw,28px) clamp(16px,4vw,64px) clamp(8px,1.2vw,16px);border-bottom:1px solid var(--line)}
+#scr-title{font-size:clamp(24px,4.2vw,64px);font-weight:800;line-height:1.05}
+#scr-artist{color:var(--muted);font-size:clamp(14px,1.6vw,24px)}
+.badges{display:flex;gap:8px;margin-left:auto;flex-wrap:wrap}
+.badge{font-family:var(--mono);font-weight:700;font-size:clamp(13px,1.5vw,22px);border:1px solid var(--line);border-radius:8px;padding:.2em .6em;background:var(--panel);font-variant-numeric:tabular-nums}
+.badge.key{color:var(--chord);border-color:var(--chord)}
+.badge.capo{color:var(--live);border-color:var(--live)}
+#scr-note{flex-basis:100%;color:var(--muted);font-size:clamp(13px,1.5vw,22px)}
+#now-note{padding:4px 16px 0;margin:0;font-size:13px;color:var(--muted)}
+#scr-scroll{flex:1;overflow:hidden;padding:clamp(16px,2.5vw,40px) clamp(16px,4vw,64px) 40vh}
+#scr-body{--size:1;font-size:calc(clamp(20px,3.3vw,52px)*var(--size));line-height:1.3;max-width:28em}
+#scr-empty{color:var(--muted);font-size:clamp(18px,2.4vw,32px);max-width:24em}
+#scr-foot{display:flex;align-items:center;gap:14px;padding:clamp(10px,1.4vw,20px) clamp(16px,4vw,64px);background:var(--panel);border-top:1px solid var(--line)}
+#scr-foot .lbl{font-family:var(--display);font-size:clamp(11px,1.1vw,16px);letter-spacing:.14em;text-transform:uppercase;color:var(--live);white-space:nowrap}
+#scr-next{font-size:clamp(16px,2.2vw,34px);font-weight:700;flex:1;min-width:0;overflow-wrap:anywhere}
+#scr-count{font-family:var(--mono);color:var(--muted);font-size:clamp(13px,1.4vw,20px);font-variant-numeric:tabular-nums;white-space:nowrap}
+#scr-tools{position:fixed;right:12px;bottom:calc(12px + clamp(52px,6vw,84px));display:flex;gap:8px;opacity:.28;transition:opacity .2s}
+#scr-tools:hover,#scr-tools:focus-within{opacity:1}
+#scr-tools button{min-height:36px;font-size:13px}
+
+/* ---------- remote ---------- */
+#remote{height:100%;display:flex;flex-direction:column;max-width:760px;margin:0 auto}
+#topbar{display:flex;align-items:center;gap:10px;padding:10px 16px;border-bottom:1px solid var(--line)}
+#topbar h1{font-size:18px;flex:1}
+#status{display:flex;align-items:center;gap:6px;font-size:12px;color:var(--muted)}
+#status i{width:8px;height:8px;border-radius:50%;background:var(--muted)}
+#status.on i{background:var(--ok)}
+#topbar button{min-height:36px;font-size:13px}
+#note{margin:8px 16px 0;padding:8px 12px;border:1px solid var(--line);border-radius:10px;font-size:13px;color:var(--muted)}
+.tab{flex:1;min-height:0;display:flex;flex-direction:column}
+.pad{padding:12px 16px;overflow-y:auto;display:flex;flex-direction:column;gap:14px}
+#tabs{display:flex;border-top:1px solid var(--line);background:var(--panel)}
+#tabs button{flex:1;border:0;border-radius:0;background:transparent;min-height:52px;color:var(--muted);font-family:var(--display);font-size:14px}
+#tabs button[aria-selected="true"]{color:var(--text);box-shadow:inset 0 3px 0 var(--chord)}
+
+#strip{display:flex;gap:8px;overflow-x:auto;padding:10px 16px;border-bottom:1px solid var(--line)}
+#strip button{flex:0 0 auto;max-width:200px;text-align:left;font-size:13px;min-height:40px;display:flex;gap:8px;align-items:center}
+#strip button span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+#strip button b{font-family:var(--mono);color:var(--muted);font-variant-numeric:tabular-nums}
+#strip button.cur{border-color:var(--live);background:#3a1c15}
+#strip button.cur b{color:var(--live)}
+#now{display:flex;align-items:center;gap:10px;padding:10px 16px 0}
+#now h2{font-size:20px;flex:1;min-width:0;overflow-wrap:anywhere}
+#now .badge{font-size:13px}
+#pane{flex:1;min-height:120px;overflow-y:auto;margin:10px 16px;padding:14px 14px 50%;border:1px solid var(--line);border-radius:12px;background:var(--panel);font-size:17px;overscroll-behavior:contain}
+#pane-hint{font-size:12px;color:var(--muted);padding:0 16px;margin-top:-4px}
+#ctl{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;padding:10px 16px}
+.stepper{display:flex;align-items:center;border:1px solid var(--line);border-radius:10px;background:var(--panel);overflow:hidden}
+.stepper button{border:0;border-radius:0;background:transparent;padding:0;width:38px;font-size:20px;flex:0 0 auto}
+.stepper div{flex:1;text-align:center;font-size:11px;color:var(--muted);line-height:1.15}
+.stepper div b{display:block;font-family:var(--mono);font-size:14px;color:var(--text)}
+#transport{display:grid;grid-template-columns:1fr 1fr;gap:8px;padding:0 16px 12px}
+#transport button{min-height:60px;font-family:var(--display);font-size:18px}
+
+.row{display:flex;align-items:center;gap:8px;padding:8px 10px;border:1px solid var(--line);border-radius:10px;background:var(--panel)}
+.row .grow{flex:1;min-width:0}
+.row .grow b{display:block;overflow-wrap:anywhere}
+.row .grow small{color:var(--muted)}
+.row button{min-height:40px;min-width:40px;padding:0 10px}
+.row .n{font-family:var(--mono);color:var(--muted);width:1.6em;font-variant-numeric:tabular-nums}
+.chips{display:flex;flex-wrap:wrap;gap:8px}
+.chips button[aria-pressed="true"]{border-color:var(--chord);color:var(--chord)}
+.pill{font-size:12px;border:1px solid var(--live);color:var(--live);border-radius:99px;padding:2px 10px;white-space:nowrap}
+.inline{display:flex;gap:8px}
+.inline input{flex:1}
+.grid2{display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px}
+.sub{font-family:var(--display);font-size:12px;letter-spacing:.12em;text-transform:uppercase;color:var(--muted)}
+.empty{color:var(--muted);border:1px dashed var(--line);border-radius:10px;padding:14px}
+.help{font-size:13px;color:var(--muted)}
+.help code{font-family:var(--mono);color:var(--chord)}
+#toast{position:fixed;left:50%;bottom:76px;transform:translateX(-50%);background:var(--raise);border:1px solid var(--line);padding:10px 14px;border-radius:10px;font-size:14px;max-width:calc(100% - 32px);z-index:9}
+@media (max-width:380px){#ctl{grid-template-columns:1fr 1fr}}
+@media (prefers-reduced-motion:reduce){*{transition:none!important}}
+</style>
+</head>
+<body>
+
+<!-- ================= SCREEN ================= -->
+<main id="screen" hidden>
+  <header id="scr-head">
+    <h1 id="scr-title">Gig Lyrics Screen</h1>
+    <span id="scr-artist"></span>
+    <div class="badges"><span class="badge capo" id="scr-capo" hidden></span><span class="badge key" id="scr-key" hidden></span><span class="badge" id="scr-bpm" hidden></span></div>
+    <div id="scr-note" hidden></div>
+  </header>
+  <div id="scr-scroll">
+    <div id="scr-body" class="song"></div>
+    <p id="scr-empty">Open this same page on your phone and pick a song. The lyrics and chords show up here.</p>
+  </div>
+  <footer id="scr-foot">
+    <span class="lbl">Up next</span>
+    <span id="scr-next">Nothing queued</span>
+    <span id="scr-count"></span>
+  </footer>
+  <div id="scr-tools">
+    <button type="button" id="btn-full">Full screen</button>
+    <button type="button" data-mode="remote">Use as remote</button>
+  </div>
+</main>
+
+<!-- ================= REMOTE ================= -->
+<main id="remote" hidden>
+  <header id="topbar">
+    <h1>Gig Remote</h1>
+    <span id="status"><i></i><span id="status-t">Connecting</span></span>
+    <button type="button" data-mode="screen">Show screen</button>
+  </header>
+  <p id="note" hidden></p>
+
+  <section class="tab" id="tab-live">
+    <div id="strip"></div>
+    <div id="now"><h2 id="now-title">No song selected</h2><span class="badge capo" id="now-capo" hidden></span><span class="badge key" id="now-key" hidden></span></div>
+    <p id="now-note" hidden></p>
+    <div id="pane" class="song" tabindex="0" aria-label="Lyrics. Scroll here to scroll the screen."></div>
+    <p id="pane-hint">Scroll the lyrics here and the screen follows.</p>
+    <div id="ctl">
+      <div class="stepper"><button type="button" data-act="tr" data-d="-1" aria-label="Transpose down">−</button><div>Key<b id="v-key">–</b></div><button type="button" data-act="tr" data-d="1" aria-label="Transpose up">+</button></div>
+      <div class="stepper"><button type="button" data-act="size" data-d="-1" aria-label="Smaller text on screen">−</button><div>Text<b id="v-size">100%</b></div><button type="button" data-act="size" data-d="1" aria-label="Larger text on screen">+</button></div>
+      <div class="stepper"><button type="button" data-act="speed" data-d="-1" aria-label="Slower auto scroll">−</button><div>Speed<b id="v-speed">3</b></div><button type="button" data-act="speed" data-d="1" aria-label="Faster auto scroll">+</button></div>
+      <button type="button" data-act="auto" id="btn-auto">Auto scroll</button>
+      <button type="button" data-act="top">Back to top</button>
+      <button type="button" data-act="blank" id="btn-blank">Blank screen</button>
+    </div>
+    <div id="transport">
+      <button type="button" data-act="prev">◀ Previous</button>
+      <button type="button" class="live" data-act="next">Next ▶</button>
+    </div>
+  </section>
+
+  <section class="tab" id="tab-sets" hidden>
+    <div class="pad">
+      <div class="inline">
+        <input id="new-set" placeholder="New set list name, e.g. Friday – Marina" autocomplete="off">
+        <button type="button" class="primary" data-act="addset">Create</button>
+      </div>
+      <div class="chips" id="set-chips"></div>
+      <div id="set-detail"></div>
+    </div>
+  </section>
+
+  <section class="tab" id="tab-songs" hidden>
+    <div class="pad">
+      <div id="song-browse">
+        <button type="button" class="primary" data-act="newsong" style="width:100%">Add a song</button>
+        <div id="song-list" style="display:flex;flex-direction:column;gap:8px;margin-top:12px"></div>
+      </div>
+      <form id="editor" hidden>
+        <h2 id="ed-h" style="font-size:20px">Add a song</h2>
+        <label>Title<input id="ed-title" required autocomplete="off"></label>
+        <label>Artist<input id="ed-artist" autocomplete="off"></label>
+        <div class="grid2">
+          <label>Key<input id="ed-key" placeholder="C" autocomplete="off"></label>
+          <label>Capo fret<input id="ed-capo" inputmode="numeric" placeholder="0" autocomplete="off"></label>
+          <label>BPM<input id="ed-bpm" inputmode="numeric" placeholder="92" autocomplete="off"></label>
+        </div>
+        <label>Notes for the band (shown under the title)<input id="ed-note" placeholder="e.g. first half only, straight into next song" autocomplete="off"></label>
+        <label>Lyrics and chords<textarea id="ed-body" spellcheck="false" placeholder="[Verse 1]&#10;[G]First line of the [D]lyric&#10;&#10;or chords on their own line:&#10;G        D       Em&#10;Second line of the lyric"></textarea></label>
+        <p class="help">With a capo, write the key and chords as the shapes you play. Put chords in square brackets where they land, like <code>[Am]</code>, or on their own line above the words. Section names go in brackets too: <code>[Chorus]</code>.</p>
+        <div class="inline">
+          <button type="submit" class="primary" style="flex:1">Save song</button>
+          <button type="button" data-act="cancel">Cancel</button>
+          <button type="button" class="danger" data-act="delsong" id="ed-del">Delete</button>
+        </div>
+      </form>
+    </div>
+  </section>
+
+  <nav id="tabs" role="tablist">
+    <button type="button" role="tab" data-tab="live" aria-selected="true">Live</button>
+    <button type="button" role="tab" data-tab="sets" aria-selected="false">Set lists</button>
+    <button type="button" role="tab" data-tab="songs" aria-selected="false">Songs</button>
+  </nav>
+</main>
+
+<div id="toast" role="status" hidden></div>
+
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-database-compat.js"></script>
+<script src="config.js"></script>
+<script src="seed.js"></script>
+<script>
+(function(){
+"use strict";
+var $=function(id){return document.getElementById(id)};
+var esc=function(s){return String(s==null?"":s).replace(/[&<>"']/g,function(c){return{"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]})};
+var clamp=function(n,a,b){return Math.max(a,Math.min(b,n))};
+
+var S={songs:{},sets:{},live:{setId:null,songId:null,pos:0,size:1,blank:false,at:0},
+       mode:null,tab:"live",editSet:null,editing:null,speed:3,auto:false,armDel:null};
+var root=null,lastLocal=0,suppress=0;
+
+/* ---------- chords ---------- */
+var CH=/^[A-G][#b]?(?:maj|min|m|M|dim|aug|sus|add)?\d*(?:(?:sus|add|maj|b|#)\d+)*(?:\/[A-G][#b]?)?$/;
+var SH=["C","C#","D","D#","E","F","F#","G","G#","A","A#","B"],FL=["C","Db","D","Eb","E","F","Gb","G","Ab","A","Bb","B"];
+function isChord(t){return CH.test(t)}
+function shift(ch,n){
+  if(!n)return ch;
+  return ch.replace(/[A-G][#b]?/g,function(r){
+    var i=SH.indexOf(r);if(i<0)i=FL.indexOf(r);if(i<0)return r;
+    return (r.charAt(1)==="b"?FL:SH)[((i+n)%12+12)%12];
+  });
+}
+var SECT=/^(intro|verse|chorus|pre-?chorus|bridge|outro|hook|solo|interlude|instrumental|mukhda|antara)\b[^a-z]*:?$/i;
+function songHTML(body,tr){
+  var out=[];
+  String(body||"").replace(/\r/g,"").split("\n").forEach(function(line){
+    var t=line.trim(),m;
+    if(!t){out.push('<div class="gap"></div>');return}
+    if((m=/^\[([^\]]+)\]$/.exec(t))&&!isChord(m[1])){out.push('<div class="sec">'+esc(m[1])+'</div>');return}
+    if(t.length<28&&SECT.test(t)){out.push('<div class="sec">'+esc(t.replace(/:$/,""))+'</div>');return}
+    if(/\[[^\]]+\]/.test(line)){
+      var h='<div class="ln">',re=/\[([^\]]+)\]/g,last=0,chord="",x;
+      var push=function(c,txt){if(!c&&!txt)return;h+='<span class="seg"><span class="c">'+esc(c?shift(c,tr):"")+'</span><span class="t">'+(txt?esc(txt):"&nbsp;")+'</span></span>'};
+      while((x=re.exec(line))){push(chord,line.slice(last,x.index));chord=x[1];last=re.lastIndex}
+      push(chord,line.slice(last));
+      out.push(h+'</div>');return;
+    }
+    if(t.split(/\s+/).every(isChord)){out.push('<div class="cl">'+esc(line.replace(/\S+/g,function(c){return shift(c,tr)}))+'</div>');return}
+    out.push('<div class="ln"><span class="seg"><span class="t">'+esc(line)+'</span></span></div>');
+  });
+  return out.join("");
+}
+
+/* ---------- derived ---------- */
+function sortedSongs(){return Object.keys(S.songs).sort(function(a,b){return String(S.songs[a].title||"").localeCompare(String(S.songs[b].title||""))})}
+function queue(){
+  var set=S.live.setId&&S.sets[S.live.setId];
+  if(set&&Array.isArray(set.songIds))return set.songIds.filter(function(id){return S.songs[id]});
+  return sortedSongs();
+}
+function curKey(s){return s&&s.key?shift(String(s.key),s.tr||0):""}
+function meta(s,more){return [s.artist,s.capo?"Capo "+s.capo:"",curKey(s)].concat(more||[]).filter(Boolean).join(" · ")}
+
+/* ---------- saving ---------- */
+var wq={};
+function put(path,data){
+  if(!root)return;
+  var q=wq[path]||(wq[path]={busy:false,has:false,next:null});
+  q.next=data;q.has=true;if(!q.busy)drain(path,q);
+}
+async function drain(path,q){
+  q.busy=true;
+  while(q.has){
+    var d=q.next;q.has=false;
+    try{ if(d===null)await root.child(path).remove(); else await root.child(path).set(d); }
+    catch(e){toast(e&&/PERMISSION/i.test(String(e.code||e.message))?"The database refused the change. Check the Firebase rules in the README.":"Could not save. Check your connection and try again.")}
+  }
+  q.busy=false;
+}
+var liveT=0;
+function setLive(patch,lazy){
+  Object.assign(S.live,patch);S.live.at=Date.now();lastLocal=Date.now();
+  if(!lazy)applyLive();
+  clearTimeout(liveT);
+  liveT=setTimeout(function(){put("live",Object.assign({},S.live))},lazy?350:0);
+}
+var posT=0,posPending=false;
+function sendPos(p){
+  S.live.pos=p;S.live.at=Date.now();lastLocal=Date.now();
+  if(root&&!posPending){
+    posPending=true;
+    setTimeout(function(){posPending=false;root.child("pos").set({songId:S.live.songId,pos:S.live.pos}).catch(function(){})},90);
+  }
+  clearTimeout(liveT);
+  liveT=setTimeout(function(){put("live",Object.assign({},S.live))},350);
+}
+function takeLive(d){
+  if(!d||typeof d!=="object")return;
+  S.live={setId:typeof d.setId==="string"?d.setId:null,songId:typeof d.songId==="string"?d.songId:null,
+    pos:clamp(+d.pos||0,0,1),size:clamp(+d.size||1,.6,1.8),blank:!!d.blank,at:+d.at||0};
+  applyLive();
+}
+
+/* ---------- screen + live rendering ---------- */
+var sig="",target=0;
+function applyLive(){
+  var s=S.live.songId?S.songs[S.live.songId]:null,q=queue(),i=q.indexOf(S.live.songId),nx=i>=0?S.songs[q[i+1]]:S.songs[q[0]];
+  var tr=s?(s.tr||0):0,k=curKey(s);
+  var nsig=[S.live.songId,s&&s.at,tr,s&&s.body&&s.body.length,S.live.blank].join("|");
+  var changed=nsig!==sig;sig=nsig;
+  // screen
+  $("scr-title").textContent=s?s.title:"Gig Lyrics Screen";
+  $("scr-artist").textContent=s?(s.artist||""):"";
+  $("scr-key").hidden=!k;$("scr-key").textContent="Key "+k;
+  var cp=s&&s.capo?"Capo "+s.capo:"",nt=s&&s.note?String(s.note):"";
+  $("scr-capo").hidden=!cp;$("scr-capo").textContent=cp;$("now-capo").hidden=!cp;$("now-capo").textContent=cp;
+  $("scr-note").hidden=!nt;$("scr-note").textContent=nt;$("now-note").hidden=!nt;$("now-note").textContent=nt;
+  $("scr-bpm").hidden=!(s&&s.bpm);$("scr-bpm").textContent=s&&s.bpm?s.bpm+" BPM":"";
+  $("scr-body").style.setProperty("--size",S.live.size);
+  $("scr-empty").hidden=!!s;
+  $("scr-scroll").style.visibility=S.live.blank?"hidden":"visible";
+  $("scr-next").textContent=nx?nx.title+(nx.capo?"  ·  Capo "+nx.capo:"")+(curKey(nx)?"  ·  "+curKey(nx):""):(s?"Last song of the set":"Nothing queued");
+  $("scr-count").textContent=i>=0?(i+1)+" / "+q.length:"";
+  // remote
+  $("now-title").textContent=s?s.title:"No song selected";
+  $("now-key").hidden=!k;$("now-key").textContent=k;
+  $("v-key").textContent=k?(k+(tr?" ("+(tr>0?"+":"")+tr+")":"")):(tr?(tr>0?"+":"")+tr:"–");
+  $("v-size").textContent=Math.round(S.live.size*100)+"%";
+  $("btn-blank").textContent=S.live.blank?"Show lyrics":"Blank screen";
+  if(changed){
+    var html=s?songHTML(s.body,tr):"";
+    $("scr-body").innerHTML=html;
+    $("pane").innerHTML=s?html:'<p class="help">Pick a song from the strip above, or add songs in the Songs tab.</p>';
+  }
+  renderStrip(q);
+  followPos(changed);
+}
+function followPos(jump){
+  target=S.live.pos;
+  if(jump){var sc=$("scr-scroll");sc.scrollTop=target*(sc.scrollHeight-sc.clientHeight)}
+  if(S.mode==="remote"&&(jump||Date.now()-lastLocal>900)){
+    var p=$("pane"),top=target*(p.scrollHeight-p.clientHeight);
+    if(Math.abs(p.scrollTop-top)>2){suppress=Date.now()+250;p.scrollTop=top;acc=top}
+  }
+}
+var still=window.matchMedia&&window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+function tick(){
+  if(S.mode==="screen"){
+    var sc=$("scr-scroll"),max=sc.scrollHeight-sc.clientHeight,want=target*max,d=want-sc.scrollTop;
+    if(Math.abs(d)>.5)sc.scrollTop+=still?d:d*.22;
+  }
+  requestAnimationFrame(tick);
+}
+function renderStrip(q){
+  var h=q.map(function(id,i){return '<button type="button" data-act="go" data-id="'+esc(id)+'"'+(id===S.live.songId?' class="cur" aria-current="true"':'')+'><b>'+(i+1)+'</b><span>'+esc(S.songs[id].title)+'</span></button>'}).join("");
+  var el=$("strip");
+  if(el.dataset.h!==h){el.dataset.h=h;el.innerHTML=h||'<span class="help">No songs yet. Add some in the Songs tab.</span>';
+    var c=el.querySelector(".cur");if(c&&c.scrollIntoView)c.scrollIntoView({block:"nearest",inline:"center"})}
+}
+
+/* ---------- set lists ---------- */
+function renderSets(){
+  var ids=Object.keys(S.sets).sort(function(a,b){return String(S.sets[a].name||"").localeCompare(String(S.sets[b].name||""))});
+  if(!S.sets[S.editSet])S.editSet=S.sets[S.live.setId]?S.live.setId:(ids[0]||null);
+  $("set-chips").innerHTML=ids.map(function(id){return '<button type="button" data-act="pickset" data-id="'+esc(id)+'" aria-pressed="'+(id===S.editSet)+'">'+esc(S.sets[id].name)+(id===S.live.setId?' ●':'')+'</button>'}).join("");
+  var set=S.sets[S.editSet],d=$("set-detail");
+  if(!set){d.innerHTML='<p class="empty">No set lists yet. Name one above, then add songs to it in the order you will play them.</p>';return}
+  var list=(set.songIds||[]).filter(function(id){return S.songs[id]});
+  var h='<div class="row"><div class="grow"><b style="font-family:var(--display);font-size:18px">'+esc(set.name)+'</b><small>'+list.length+' song'+(list.length===1?'':'s')+'</small></div>'+
+    (S.editSet===S.live.setId?'<span class="pill">On stage</span>':'<button type="button" class="live" data-act="useset">Use on stage</button>')+
+    '<button type="button" class="danger" data-act="delset">'+(S.armDel==="set"?"Tap again":"Delete")+'</button></div>';
+  h+='<div style="display:flex;flex-direction:column;gap:8px;margin-top:12px">';
+  h+=list.length?list.map(function(id,i){var s=S.songs[id];return '<div class="row"><span class="n">'+(i+1)+'</span><div class="grow"><b>'+esc(s.title)+'</b><small>'+esc(meta(s))+'</small></div>'+
+    '<button type="button" data-act="mv" data-id="'+esc(id)+'" data-d="-1" aria-label="Move up"'+(i?'':' disabled')+'>↑</button>'+
+    '<button type="button" data-act="mv" data-id="'+esc(id)+'" data-d="1" aria-label="Move down"'+(i<list.length-1?'':' disabled')+'>↓</button>'+
+    '<button type="button" data-act="rm" data-id="'+esc(id)+'" aria-label="Remove from set">✕</button></div>'}).join(""):'<p class="empty">This set is empty. Add songs from your library below.</p>';
+  var rest=sortedSongs().filter(function(id){return list.indexOf(id)<0});
+  h+='</div><p class="sub" style="margin:18px 0 8px">Add from library</p><div style="display:flex;flex-direction:column;gap:8px">';
+  h+=rest.length?rest.map(function(id){var s=S.songs[id];return '<div class="row"><div class="grow"><b>'+esc(s.title)+'</b><small>'+esc(s.artist||"")+'</small></div><button type="button" data-act="addto" data-id="'+esc(id)+'" aria-label="Add to set">+ Add</button></div>'}).join(""):'<p class="help">Every song in your library is already in this set.</p>';
+  d.innerHTML=h+'</div>';
+}
+function saveSet(id,set){S.sets[id]=set;put("setlists/"+id,set);renderSets();applyLive()}
+
+/* ---------- songs ---------- */
+function renderSongs(){
+  var ids=sortedSongs();
+  $("song-list").innerHTML=ids.length?ids.map(function(id){var s=S.songs[id];return '<div class="row"><div class="grow"><b>'+esc(s.title)+'</b><small>'+esc(meta(s,[s.bpm?s.bpm+" BPM":""]))+'</small></div><button type="button" data-act="edit" data-id="'+esc(id)+'">Edit</button></div>'}).join(""):'<p class="empty">Your library is empty. Add a song and paste in its lyrics and chords.</p>'+(window.GIG_SEED&&root?'<button type="button" data-act="seed">Load Set 1 starter (chords and cues)</button>':'');
+}
+function openEditor(id){
+  S.editing=id;S.armDel=null;var s=id==="new"?{}:S.songs[id]||{};
+  $("ed-h").textContent=id==="new"?"Add a song":"Edit song";
+  $("ed-title").value=s.title||"";$("ed-artist").value=s.artist||"";$("ed-key").value=s.key||"";$("ed-bpm").value=s.bpm||"";$("ed-capo").value=s.capo||"";$("ed-note").value=s.note||"";$("ed-body").value=s.body||"";
+  $("ed-del").hidden=id==="new";$("ed-del").textContent="Delete";
+  $("song-browse").hidden=true;$("editor").hidden=false;
+}
+function closeEditor(){S.editing=null;$("editor").hidden=true;$("song-browse").hidden=false;renderSongs()}
+function newId(p){return p+Date.now().toString(36)+Math.random().toString(36).slice(2,6)}
+
+function refresh(){renderSongs();renderSets();applyLive()}
+
+/* ---------- navigation ---------- */
+function go(id){setLive({songId:id,pos:0,blank:false});stopAuto()}
+function step(d){var q=queue();if(!q.length)return;var i=q.indexOf(S.live.songId);i=i<0?0:clamp(i+d,0,q.length-1);if(q[i]!==S.live.songId)go(q[i])}
+
+/* ---------- auto scroll (runs on the remote) ---------- */
+var acc=0,lastT=0;
+function autoTick(t){
+  if(!S.auto)return;
+  var p=$("pane"),max=p.scrollHeight-p.clientHeight,dt=lastT?(t-lastT)/1000:0;lastT=t;
+  acc=Math.min(max,acc+(3+S.speed*5)*Math.min(dt,.1));
+  suppress=0;p.scrollTop=acc;
+  if(acc>=max-1){stopAuto();return}
+  requestAnimationFrame(autoTick);
+}
+function startAuto(){S.auto=true;acc=$("pane").scrollTop;lastT=0;$("btn-auto").textContent="Stop scrolling";$("btn-auto").classList.add("primary");
+  try{if(navigator.wakeLock)navigator.wakeLock.request("screen").catch(function(){})}catch(e){}
+  requestAnimationFrame(autoTick)}
+function stopAuto(){S.auto=false;$("btn-auto").textContent="Auto scroll";$("btn-auto").classList.remove("primary")}
+
+/* ---------- events ---------- */
+$("pane").addEventListener("scroll",function(){
+  if(Date.now()<suppress)return;
+  var p=$("pane"),max=p.scrollHeight-p.clientHeight;
+  if(max<=0||!S.live.songId)return;
+  sendPos(clamp(p.scrollTop/max,0,1));target=S.live.pos;
+},{passive:true});
+$("pane").addEventListener("pointerdown",function(){if(S.auto)stopAuto()});
+
+document.addEventListener("click",function(e){
+  var b=e.target.closest("button");if(!b)return;
+  if(b.dataset.mode){setMode(b.dataset.mode);return}
+  if(b.dataset.tab){setTab(b.dataset.tab);return}
+  var a=b.dataset.act,id=b.dataset.id,d=+b.dataset.d||0,s,set,list,i;
+  if(!a)return;
+  if(a!=="delset"&&a!=="delsong")S.armDel=null;
+  if(a==="go")go(id);
+  else if(a==="prev")step(-1);
+  else if(a==="next")step(1);
+  else if(a==="top"){stopAuto();suppress=Date.now()+250;$("pane").scrollTop=0;setLive({pos:0})}
+  else if(a==="blank")setLive({blank:!S.live.blank});
+  else if(a==="size")setLive({size:clamp(Math.round((S.live.size+d*.1)*10)/10,.6,1.8)});
+  else if(a==="speed"){S.speed=clamp(S.speed+d,1,9);$("v-speed").textContent=S.speed}
+  else if(a==="auto"){if(S.auto)stopAuto();else if(S.live.songId)startAuto()}
+  else if(a==="tr"){s=S.songs[S.live.songId];if(!s)return;s=Object.assign({},s,{tr:clamp((s.tr||0)+d,-11,11)});S.songs[S.live.songId]=s;put("songs/"+S.live.songId,s);
+    var keep=S.live.pos;refresh();S.live.pos=keep;followPos(true)}
+  else if(a==="addset"){var n=$("new-set").value.trim();if(!n){$("new-set").focus();return}id=newId("l");S.editSet=id;$("new-set").value="";saveSet(id,{name:n.slice(0,80),songIds:[]})}
+  else if(a==="pickset"){S.editSet=id;renderSets()}
+  else if(a==="useset"){set=S.sets[S.editSet];list=(set.songIds||[]).filter(function(x){return S.songs[x]});setLive({setId:S.editSet,songId:list[0]||null,pos:0,blank:false});renderSets();setTab("live")}
+  else if(a==="delset"){if(S.armDel!=="set"){S.armDel="set";renderSets();return}S.armDel=null;id=S.editSet;delete S.sets[id];put("setlists/"+id,null);if(S.live.setId===id)setLive({setId:null});S.editSet=null;renderSets()}
+  else if(a==="addto"||a==="rm"||a==="mv"){set=S.sets[S.editSet];if(!set)return;list=(set.songIds||[]).filter(function(x){return S.songs[x]});i=list.indexOf(id);
+    if(a==="addto"&&i<0)list.push(id);
+    if(a==="rm"&&i>=0)list.splice(i,1);
+    if(a==="mv"&&i>=0&&list[i+d]){list.splice(i,1);list.splice(i+d,0,id)}
+    saveSet(S.editSet,{name:set.name,songIds:list})}
+  else if(a==="seed"){var sd=window.GIG_SEED||{};Object.keys(sd.songs||{}).forEach(function(k){S.songs[k]=sd.songs[k];put("songs/"+k,sd.songs[k])});Object.keys(sd.setlists||{}).forEach(function(k){S.sets[k]=sd.setlists[k];put("setlists/"+k,sd.setlists[k])});refresh();toast("Set 1 loaded")}
+  else if(a==="newsong")openEditor("new");
+  else if(a==="edit")openEditor(id);
+  else if(a==="cancel")closeEditor();
+  else if(a==="delsong"){if(S.armDel!=="song"){S.armDel="song";b.textContent="Tap again to delete";return}S.armDel=null;id=S.editing;delete S.songs[id];put("songs/"+id,null);
+    Object.keys(S.sets).forEach(function(k){var st=S.sets[k];if((st.songIds||[]).indexOf(id)>=0){S.sets[k]={name:st.name,songIds:st.songIds.filter(function(x){return x!==id})};put("setlists/"+k,S.sets[k])}});
+    if(S.live.songId===id)setLive({songId:null,pos:0});closeEditor();refresh()}
+});
+$("editor").addEventListener("submit",function(e){
+  e.preventDefault();
+  var t=$("ed-title").value.trim();if(!t){$("ed-title").focus();return}
+  var id=S.editing==="new"?newId("s"):S.editing,old=S.songs[id]||{};
+  var bpm=parseInt($("ed-bpm").value,10),capo=parseInt($("ed-capo").value,10);
+  var s={title:t.slice(0,120),artist:$("ed-artist").value.trim().slice(0,120),key:$("ed-key").value.trim().slice(0,8),bpm:bpm>0&&bpm<400?bpm:0,capo:capo>0&&capo<13?capo:0,note:$("ed-note").value.trim().slice(0,200),body:$("ed-body").value.slice(0,60000),tr:old.tr||0,at:Date.now()};
+  S.songs[id]=s;put("songs/"+id,s);closeEditor();refresh();toast("Saved “"+s.title+"”");
+});
+$("new-set").addEventListener("keydown",function(e){if(e.key==="Enter"){e.preventDefault();document.querySelector('[data-act="addset"]').click()}});
+$("btn-full").addEventListener("click",function(){
+  try{if(document.fullscreenElement)document.exitFullscreen();else document.documentElement.requestFullscreen().catch(function(){toast("Full screen is not available here. Try your browser's own full screen.")})}
+  catch(e){toast("Full screen is not available here. Try your browser's own full screen.")}
+});
+document.addEventListener("keydown",function(e){
+  if(/INPUT|TEXTAREA/.test(e.target.tagName))return;
+  if(e.key==="ArrowRight"||e.key==="PageDown")step(1);
+  else if(e.key==="ArrowLeft"||e.key==="PageUp")step(-1);
+});
+
+function setTab(t){S.tab=t;["live","sets","songs"].forEach(function(k){$("tab-"+k).hidden=k!==t});
+  Array.prototype.forEach.call(document.querySelectorAll("#tabs button"),function(b){b.setAttribute("aria-selected",b.dataset.tab===t)});
+  if(t==="live")followPos(true)}
+function setMode(m){S.mode=m;$("screen").hidden=m!=="screen";$("remote").hidden=m!=="remote";
+  try{if(location.hash!=="#"+m)location.hash=m}catch(e){}
+  followPos(true)}
+window.addEventListener("hashchange",function(){var h=location.hash.slice(1);if((h==="screen"||h==="remote")&&h!==S.mode)setMode(h)});
+var toastT=0;
+function toast(msg){var t=$("toast");t.textContent=msg;t.hidden=false;clearTimeout(toastT);toastT=setTimeout(function(){t.hidden=true},3200)}
+function status(on,txt){$("status").classList.toggle("on",on);$("status-t").textContent=txt}
+function note(msg){$("note").hidden=!msg;$("note").textContent=msg||""}
+
+/* ---------- start ---------- */
+var h0=location.hash.slice(1);
+setMode(h0==="screen"||h0==="remote"?h0:(window.innerWidth>=900?"screen":"remote"));
+refresh();requestAnimationFrame(tick);
+
+(function connect(){
+  var cfg=window.GIG_CONFIG||{},fb=cfg.firebase||{};
+  var clean=function(o){var m={};Object.keys(o||{}).forEach(function(k){if(o[k]&&typeof o[k]==="object")m[k]=o[k]});return m};
+  if(!window.firebase||!fb.databaseURL||/PASTE/.test(fb.databaseURL)){status(false,"Not synced");note("Not connected yet. Put your Firebase settings in config.js (steps are in the README). Until then nothing is saved and the screen will not follow the remote.");return}
+  try{firebase.initializeApp(fb);root=firebase.database().ref("rooms/"+String(cfg.room||"main").replace(/[.#$\[\]\/]/g,"-"))}
+  catch(e){root=null;status(false,"Not synced");note("The Firebase settings in config.js did not work. Check them against the README.");return}
+  var slow=setTimeout(function(){note("Still trying to reach your saved songs. Anything shown may be out of date.")},10000);
+  var fail=function(){clearTimeout(slow);status(false,"Not synced");note("The database refused to load your songs. Check the Firebase rules in the README.")};
+  firebase.database().ref(".info/connected").on("value",function(s){if(s.val()){clearTimeout(slow);note("");status(true,"Synced")}else status(false,"Offline")});
+  root.child("songs").on("value",function(s){S.songs=clean(s.val());if(!S.editing)renderSongs();renderSets();applyLive()},fail);
+  root.child("setlists").on("value",function(s){S.sets=clean(s.val());renderSets();applyLive()},fail);
+  root.child("live").on("value",function(s){var d=s.val();if(!d||Date.now()-lastLocal<1200)return;takeLive(d)},fail);
+  root.child("pos").on("value",function(s){var d=s.val();if(!d||d.songId!==S.live.songId||Date.now()-lastLocal<900)return;S.live.pos=clamp(+d.pos||0,0,1);followPos(false)},fail);
+})();
+})();
+</script>
+</body>
+</html>
